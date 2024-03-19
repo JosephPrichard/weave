@@ -2,7 +2,7 @@
 // 3/15/2024
 // Implementation of an ast walker for the interpreter
 
-use crate::syntaxtree::{Bop, BinaryExpr, Constant, Expr, Func, Unop, Value};
+use crate::node::{Constant, Expr, Unop, ArithOp, BoolOp, CondNode, ArithExpr, BoolExpr, FuncNode, Node};
 
 pub enum RunErr {
     Type(&'static str),
@@ -18,24 +18,24 @@ impl RunErr {
 type StackFrame = Vec<(String, Constant)>;
 
 pub struct Environment {
-    stack_frames: Vec<StackFrame>
+    frames: Vec<StackFrame>
 }
 
 impl Environment {
     pub fn push(&mut self) {
-        self.stack_frames.push(vec![])
+        self.frames.push(vec![])
     }
 
     pub fn pop(&mut self) {
-        self.stack_frames.pop();
+        self.frames.pop();
     }
 
     pub fn top(&mut self) -> &mut StackFrame {
-        if self.stack_frames.len() == 0 {
+        if self.frames.len() == 0 {
             self.push()
         }
-        let len = self.stack_frames.len();
-        &mut self.stack_frames[len - 1]
+        let len = self.frames.len();
+        &mut self.frames[len - 1]
     }
 
     pub fn write(&mut self, iden: &str, constant: Constant) -> Result<(), RunErr> {
@@ -64,38 +64,40 @@ pub type ExprResult = Result<Constant, RunErr>;
 
 pub fn eval_expr(expr: &Expr) -> ExprResult {
     match expr {
-        Expr::Value(value) => eval_value(value),
-        Expr::BinaryOp(arith) => eval_binary_expr(arith),
-        Expr::UnaryOp(op, expr) => eval_unary_expr(op, expr),
-        Expr::Func(func) => eval_func(func)
+        Expr::Constant(constant) => Ok(constant.clone()),
+        Expr::Variable(v) => panic!("Variable access not yet implemented"),
+        Expr::BinArith(arith) => eval_arith_expr(arith),
+        Expr::BinBool(bool) => Ok(Constant::Bool(eval_bool_expr(bool)?)),
+        Expr::Unary(op, expr) => eval_unary_expr(op, expr),
+        Expr::CallFunc(func) => eval_func(func)
     }
 }
 
-pub fn eval_value(value: &Value) -> ExprResult {
-    match value {
-        Value::Constant(constant) => Ok(constant.clone()),
-        Value::Variable(v) => panic!("Variable access not yet implemented")
-    }
-}
-
-pub fn eval_binary_expr(expr: &BinaryExpr) -> ExprResult {
+pub fn eval_arith_expr(expr: &ArithExpr) -> ExprResult {
     let lhs = eval_expr(expr.lhs.as_ref())?;
     let rhs = eval_expr(expr.rhs.as_ref())?;
     match expr.op {
-        Bop::Add => eval_add_expr(lhs, rhs),
-        Bop::Multiply => eval_multiply_expr(lhs, rhs),
-        Bop::Subtract => eval_subtract_expr(lhs, rhs),
-        Bop::Divide => eval_divide_expr(lhs, rhs),
-        Bop::Eq => Ok(Constant::Bool(lhs == rhs)),
-        Bop::Neq => Ok(Constant::Bool(lhs != rhs)),
-        Bop::Leq => Ok(Constant::Bool(lhs <= rhs)),
-        Bop::Geq => Ok(Constant::Bool(lhs >= rhs)),
-        Bop::Lt => Ok(Constant::Bool(lhs < rhs)),
-        Bop::Gt => Ok(Constant::Bool(lhs > rhs))
+        ArithOp::Add => eval_add(&lhs, &rhs),
+        ArithOp::Multiply => eval_multiply(&lhs, &rhs),
+        ArithOp::Subtract => eval_subtract(&lhs, &rhs),
+        ArithOp::Divide => eval_divide(&lhs, &rhs),
     }
 }
 
-pub fn eval_add_expr(lhs: Constant, rhs: Constant) -> ExprResult {
+pub fn eval_bool_expr(expr: &BoolExpr) -> Result<bool, RunErr> {
+    let lhs = eval_expr(expr.lhs.as_ref())?;
+    let rhs = eval_expr(expr.rhs.as_ref())?;
+    match expr.op {
+        BoolOp::Eq => Ok(lhs == rhs),
+        BoolOp::Neq => Ok(lhs != rhs),
+        BoolOp::Leq => Ok(lhs <= rhs),
+        BoolOp::Geq => Ok(lhs >= rhs),
+        BoolOp::Lt => Ok(lhs < rhs),
+        BoolOp::Gt => Ok(lhs > rhs)
+    }
+}
+
+pub fn eval_add(lhs: &Constant, rhs: &Constant) -> ExprResult {
     match (lhs, rhs) {
         (Constant::Int(lhs),  Constant::Int(rhs)) => Ok(Constant::Int(lhs + rhs)),
         (Constant::Float(lhs),  Constant::Float(rhs)) => Ok(Constant::Float(lhs + rhs)),
@@ -108,14 +110,14 @@ pub fn eval_add_expr(lhs: Constant, rhs: Constant) -> ExprResult {
     }
 }
 
-pub fn eval_multiply_expr(lhs: Constant, rhs: Constant) -> ExprResult {
+pub fn eval_multiply(lhs: &Constant, rhs: &Constant) -> ExprResult {
     match (lhs, rhs) {
         (Constant::Int(lhs), Constant::Int(rhs)) => Ok(Constant::Int(lhs * rhs)),
         (Constant::Float(lhs), Constant::Float(rhs)) => Ok(Constant::Float(lhs * rhs)),
         (Constant::String(lhs), Constant::Int(rhs)) => {
             let mut s_new = String::new();
-            for _ in 0..rhs {
-                s_new.push_str(&lhs)
+            for _ in 0..*rhs {
+                s_new.push_str(lhs)
             }
             Ok(Constant::String(s_new))
         }
@@ -123,7 +125,7 @@ pub fn eval_multiply_expr(lhs: Constant, rhs: Constant) -> ExprResult {
     }
 }
 
-pub fn eval_subtract_expr(lhs: Constant, rhs: Constant) -> ExprResult {
+pub fn eval_subtract(lhs: &Constant, rhs: &Constant) -> ExprResult {
     match (lhs, rhs) {
         (Constant::Int(lhs), Constant::Int(rhs)) => Ok(Constant::Int(lhs - rhs)),
         (Constant::Float(lhs), Constant::Float(rhs)) => Ok(Constant::Float(lhs - rhs)),
@@ -131,7 +133,7 @@ pub fn eval_subtract_expr(lhs: Constant, rhs: Constant) -> ExprResult {
     }
 }
 
-pub fn eval_divide_expr(lhs: Constant, rhs: Constant) -> ExprResult {
+pub fn eval_divide(lhs: &Constant, rhs: &Constant) -> ExprResult {
     match (lhs, rhs) {
         (Constant::Int(lhs), Constant::Int(rhs)) => Ok(Constant::Int(lhs / rhs)),
         (Constant::Float(lhs), Constant::Float(rhs)) => Ok(Constant::Float(lhs / rhs)),
@@ -153,7 +155,7 @@ pub fn eval_unary_expr(op: &Unop, expr: &Expr) -> ExprResult {
     }
 }
 
-pub fn eval_func(func: &Func) -> Result<Constant, RunErr> {
+pub fn eval_func(func: &FuncNode) -> Result<Constant, RunErr> {
     let mut results = vec![];
     for arg in func.args.iter() {
         match eval_expr(&arg) {
@@ -166,3 +168,17 @@ pub fn eval_func(func: &Func) -> Result<Constant, RunErr> {
     panic!("Function call not yet implemented")
 }
 
+pub fn eval_cond(expr: &CondNode) -> Result<(), RunErr> {
+    if eval_bool_expr(&expr.cond)? {
+        eval_node(&expr.this)
+    } else {
+        eval_node(&expr.that)
+    }
+}
+
+pub fn eval_node(node: &Node) -> Result<(), RunErr> {
+    match node {
+        _ => {}
+    }
+    Ok(())
+}

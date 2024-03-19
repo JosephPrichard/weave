@@ -1,7 +1,6 @@
 mod parser;
 mod interpreter;
-mod syntaxtree;
-mod vm;
+mod node;
 
 fn main() {
     println!("Hello, world!");

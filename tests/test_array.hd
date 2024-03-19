@@ -1,0 +1,51 @@
+
+// an array is essentially a pointer to a typed block of memory and a length
+
+// procedure to sum the elements in an array
+fn sum_array(array []int) int, int {
+    e_total := 0
+    i_total := 0
+    for e, i in array {
+        e_total += elem
+        i_total += i
+    }
+    return e_total, i_total
+}
+
+// procedure to multiply the elements in an array
+fn multiply_array(arr []float) float {
+    acc := 0.0
+    for i in 0..arr.len {
+        acc += arr[i]
+    }
+    return acc
+}
+
+// procedure to find an element in an array
+fn binary_search(arr []int, x int) int {
+    if arr.len == 0 return -1
+
+    low := 0
+    high := arr.len - 1
+    while low < high {
+        mid := (low + high) / 2
+        y := arr[mid]
+        if x < y {
+            high = mid - 1
+        } else if x > y {
+            low = mid + 1
+        } else {
+            return mid
+        }
+    }
+
+    return -1
+}
+
+fn main() {
+    t1 := sum_array([1, 2, 3, 4, 5])
+    t2 := multiply_array([5]float[3.0])
+
+    arr := [1, 4, 5, 10, 12, 14]
+    binary_search(arr, 4, fn(x: int, y: int) { return x - y })
+}
