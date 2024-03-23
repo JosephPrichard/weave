@@ -5,82 +5,96 @@
 pub enum Node {
     DefFunc(DefFuncNode),
     DefStruct(DefStructNode),
-    Block(Vec<Node>),
-    Cond(CondNode),
+    Constant(Const),
+    Variable(String),
+    Binop(BinopNode),
+    Unop(UnopNode),
+    CallFunc(FuncNode),
+    If(IfNode),
+    Else(Vec<Node>),
     Guard(GuardNode),
     While(WhileNode),
     For(ForNode),
-    Assign(String, Expr),
-    Return(Expr),
+    Assign(String, Box<Node>),
+    Return(Box<Node>),
+    Break,
+    Continue,
     Func(FuncNode),
     Struct(StructNode),
     Array(Vec<Node>),
+    Range(i32, i32),
+    Lambda(LambdaNode)
 }
-
-pub enum Expr {
-    Constant(Constant),
-    Variable(String),
-    BinArith(ArithExpr),
-    BinBool(BoolExpr),
-    Unary(Unop, Box<Expr>),
-    CallFunc(FuncNode),
-}
-
-pub enum Type {
-    Int,
-    Float,
-    Bool,
-    Char,
-    String,
-    Array(Box<Type>),
-    Struct(String),
+pub enum TypeNode {
+    IntType,
+    FloatType,
+    BoolType,
+    CharType,
+    StringType,
+    ArrayType(Box<TypeNode>),
+    StructType(String),
 }
 
 pub struct DefFuncNode {
     pub iden: String,
-    pub args: Vec<(String, Type)>,
-    pub body: Box<Node>
+    pub args: Vec<(String, TypeNode)>,
+    pub body: Vec<Node>
 }
 
 pub struct DefStructNode {
     pub iden: String,
-    pub fields: Vec<(String, Type)>
+    pub fields: Vec<(String, TypeNode)>
 }
 
-pub struct CondNode {
-    pub cond: BoolExpr,
-    pub this: Box<Node>,
-    pub that: Box<Node>
+pub struct IfNode {
+    pub cond: Box<Node>,
+    pub body: Vec<Node>,
 }
 
 pub struct GuardNode {
-    pub cond: BoolExpr,
-    pub this: Expr,
+    pub cond: Box<Node>,
+    pub this: Box<Node>,
 }
 
 pub struct WhileNode {
-    pub cond: Expr,
-    pub body: Box<Node>,
+    pub cond: Box<Node>,
+    pub body: Vec<Node>,
 }
 
 pub struct ForNode {
     pub element: String,
     pub index: Option<String>,
-    pub coll: Expr,
+    pub collection: Box<Node>,
 }
 
 pub struct FuncNode {
     pub iden: String,
-    pub args: Vec<Expr>
+    pub args: Vec<Node>
 }
 
 pub struct StructNode {
     pub iden: String,
-    pub fields: Vec<(String, Expr)>
+    pub fields: Vec<(String, Node)>
+}
+
+pub struct LambdaNode {
+    pub args: Vec<(String, Option<TypeNode>)>,
+    pub body: Box<Node>
+}
+
+pub struct BinopNode {
+    pub op: Bop,
+    pub lhs: Box<Node>,
+    pub rhs: Box<Node>,
+}
+
+pub struct UnopNode {
+    pub op: Uop,
+    pub expr: Box<Node>,
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]
-pub enum Constant {
+pub enum Const {
     Int(i32),
     Float(f64),
     Bool(bool),
@@ -88,35 +102,25 @@ pub enum Constant {
     String(String),
 }
 
-pub enum ArithOp {
+#[derive(Debug, PartialEq)]
+pub enum Bop {
     Add,
+    Exp,
     Subtract,
     Multiply,
     Divide,
-}
-
-pub enum BoolOp {
     Eq,
     Neq,
     Leq,
     Geq,
     Lt,
     Gt,
+    And,
+    Or,
 }
 
-pub enum Unop {
+#[derive(Debug, PartialEq)]
+pub enum Uop {
     Not,
     Minus
-}
-
-pub struct ArithExpr {
-    pub op: ArithOp,
-    pub lhs: Box<Expr>,
-    pub rhs: Box<Expr>,
-}
-
-pub struct BoolExpr {
-    pub op: BoolOp,
-    pub lhs: Box<Expr>,
-    pub rhs: Box<Expr>,
 }

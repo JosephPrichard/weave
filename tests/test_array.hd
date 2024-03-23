@@ -44,8 +44,8 @@ fn binary_search(arr []int, x int) int {
 
 fn main() {
     t1 := sum_array([1, 2, 3, 4, 5])
-    t2 := multiply_array([5]float[3.0])
+    t2 := multiply_array([5]float.[3.0])
 
     arr := [1, 4, 5, 10, 12, 14]
-    binary_search(arr, 4, fn(x: int, y: int) { return x - y })
+    i := binary_search(arr, 4)
 }

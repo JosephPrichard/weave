@@ -13,7 +13,12 @@ fn exp(x int, n int) int {
 fn fib(n int) {
     if n <= 0 return 1
     if n == 1 return 1
-    return fib(n - 2) + (n - 1)
+    return fib(n - 2) + fib(n - 1)
+}
+
+fn sum(n int) {
+    if n <= 0 return 0
+    return sum(n - 1) + 1
 }
 
 fn main() {
