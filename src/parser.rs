@@ -11,7 +11,7 @@ pub fn expect_error(expected: &str, actual: &str) -> String {
 }
 
 impl Parser {
-    fn new(&self, tokens: VecDeque<Token>) -> Parser {
+    fn new(tokens: VecDeque<Token>) -> Parser {
         Parser { tokens }
     }
 
@@ -95,8 +95,11 @@ impl Parser {
             let tok = self.expect_token()?;
             let iden_arg = match tok {
                 Token::Iden(iden_arg) => iden_arg,
-                tok =>
-                    return Err(expect_error("<iden>", tok.to_text()))
+                tok if tok == term => break,
+                tok => {
+                    let m = format!("{} or <iden>", term.to_text());
+                    return Err(expect_error(&m, tok.to_text()))
+                }
             };
 
             let type_node = self.parse_type()?;
@@ -105,13 +108,10 @@ impl Parser {
             let tok = self.expect_token()?;
             match tok {
                 Token::Comma => (),
+                tok if tok == term => break,
                 tok => {
-                    if tok == term {
-                        break
-                    } else {
-                        let m = format!("{} or ,", term.to_text());
-                        return Err(expect_error(&m, tok.to_text()))
-                    }
+                    let m = format!("{} or ,", term.to_text());
+                    return Err(expect_error(&m, tok.to_text()))
                 }
             }
         }
@@ -209,10 +209,46 @@ impl Parser {
 }
 
 mod test {
-    use crate::node::{BinopNode, WhileNode, Bop, DefFuncNode, GuardNode, FuncNode, TypeNode};
+    use std::io::{BufReader, Cursor};
+    use crate::lexer::Lexer;
+    use crate::node::{BinopNode, WhileNode, Bop, DefFuncNode, GuardNode, FuncNode, TypeNode, DefStructNode};
     use crate::node::Bop::{Plus, Leq, Multiply, Minus};
     use crate::node::Const::Int;
-    use crate::node::Node::{Assign, Binop, Constant, DefFunc, Func, Guard, Return, Variable, While};
+    use crate::node::Node::{Assign, Binop, Constant, DefFunc, DefStruct, Func, Guard, Return, Variable, While};
+    use crate::parser::Parser;
+
+    #[test]
+    fn test_parse_def() {
+        let program = "
+            struct Point {
+                x int,
+                y int,
+            }
+            fn add_points(p1 Point, p2 Point): Point
+        ";
+        let reader = BufReader::new(Cursor::new(program));
+        let tokens = Lexer::new(reader).read_tokens().unwrap();
+        let actual_nodes = Parser::new(tokens).parse_program().unwrap();
+        let expect_nodes = vec![
+            DefStruct(DefStructNode{
+                iden: "Point".to_string(),
+                fields: vec![
+                    ("x".to_string(), TypeNode::Iden("int".to_string())),
+                    ("y".to_string(), TypeNode::Iden("int".to_string()))
+                ],
+            }),
+            DefFunc(DefFuncNode {
+                iden: "add_points".to_string(),
+                args: vec![
+                    ("p1".to_string(), TypeNode::Iden("Point".to_string())),
+                    ("p2".to_string(), TypeNode::Iden("Point".to_string()))
+                ],
+                ret: Some(TypeNode::Iden("Point".to_string())),
+                body: vec![],
+            })
+        ];
+        assert_eq!(actual_nodes, expect_nodes)
+    }
 
     #[test]
     fn test_parse_loop() {

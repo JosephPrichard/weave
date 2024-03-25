@@ -114,24 +114,6 @@ pub struct Lexer<T: BufRead> {
     reader: BufReader<T>
 }
 
-fn from_esc_seq(c: char, term: char) -> Result<char, String> {
-    if c == '\\' {
-        Ok('\\')
-    } else if c == 'n' {
-        Ok('\n')
-    } else if c == 't' {
-        Ok('\t')
-    } else if c == 'r' {
-        Ok('\r')
-    } else if c == '0'{
-        Ok('\0')
-    } else if c == term {
-        Ok(term)
-    } else {
-        Err(format!("Invalid esc seq: '\\{}'", c))
-    }
-}
-
 impl<T: BufRead> Lexer<T> {
     pub fn new(reader: BufReader<T>) -> Lexer<T> {
         Lexer{ reader }
@@ -179,13 +161,29 @@ impl<T: BufRead> Lexer<T> {
         Ok(())
     }
 
+    fn match_escseq(c: char, term: char) -> Result<char, String> {
+        match c {
+            '\\' => Ok('\\'),
+            'n' => Ok('\n'),
+            't' => Ok('\t'),
+            'r' => Ok('\r'),
+            '0' => Ok('\0'),
+            _ if c == term => Ok(term),
+            _ => Err(format!("Invalid esc seq: '\\{}'", c)),
+        }
+    }
+
+    fn is_control(c: char) -> bool {
+        "[](){},.;".contains(c)
+    }
+
     fn scan_text(&mut self, term: char) -> Result<String, String> {
         let mut isesc = false;
         let mut str = String::new();
         while let Some(c) = self.read()? {
             if isesc {
                 isesc = false;
-                let c = from_esc_seq(c, term)?;
+                let c = Self::match_escseq(c, term)?;
                 str.push(c)
             } else {
                 if c == '\\' {
@@ -243,7 +241,7 @@ impl<T: BufRead> Lexer<T> {
     fn scan_keyword(&mut self, c: char) -> Result<Token, String> {
         let mut tok = String::from(c);
         while let Some(c) = self.peek()? {
-            if !c.is_alphanumeric() {
+            if '_' != c && !c.is_alphanumeric() {
                 break;
             }
             tok.push(c);
@@ -270,7 +268,7 @@ impl<T: BufRead> Lexer<T> {
     fn scan_special(&mut self, c: char) -> Result<Token, String>  {
         let mut tok = String::from(c);
         while let Some(c) = self.peek()? {
-            if c.is_whitespace() || c.is_alphanumeric() {
+            if c.is_whitespace() || c.is_alphanumeric() || Self::is_control(c) {
                 break
             }
             tok.push(c);
@@ -297,17 +295,8 @@ impl<T: BufRead> Lexer<T> {
             ">" => Token::Operator(Op::Gt),
             "&&" => Token::Operator(Op::And),
             "||" => Token::Operator(Op::Or),
-            "," => Token::Comma,
-            "." => Token::Dot,
-            ";" => Token::SemiColon,
             ":" => Token::Colon,
-            "[" => Token::LBracket,
-            "]" => Token::RBracket,
-            "(" => Token::LParen,
-            ")" => Token::RParen,
-            "{" => Token::LBrace,
-            "}" => Token::RBrace,
-            _ => return Err(format!("Invalid token: '{}' while scanning", tok)),
+            _ => return Err(format!("Invalid token: '{}' while scanning", tok))
         };
         Ok(token)
     }
@@ -317,19 +306,21 @@ impl<T: BufRead> Lexer<T> {
 
         if let Some(c) = self.read()? {
             let token = match c {
+                '[' => Token::LBracket,
+                ']' => Token::RBracket,
+                '(' => Token::LParen,
+                ')' => Token::RParen,
+                '{' => Token::LBrace,
+                '}' => Token::RBrace,
+                ',' => Token::Comma,
+                '.' => Token::Dot,
+                ';' => Token::SemiColon,
                 '\'' => self.scan_char()?,
                 '\"' => self.scan_string()?,
-                ' ' |
-                '\t' => return Err("Invalid token: should not contain whitespace".to_string()),
-                _ => {
-                    if c.is_digit(10) || c == '-' {
-                        self.scan_number(c)?
-                    } else if c.is_alphanumeric() {
-                        self.scan_keyword(c)?
-                    } else {
-                        self.scan_special(c)?
-                    }
-                }
+                ' ' | '\t' => return Err("Invalid token: should not contain whitespace".to_string()),
+                _ if c.is_digit(10) || c == '-' => self.scan_number(c)?,
+                _ if c.is_alphanumeric() => self.scan_keyword(c)?,
+                _ => self.scan_special(c)?
             };
             Ok(Some(token))
         } else {
@@ -402,7 +393,7 @@ mod test {
     #[test]
     fn test_lex_func() {
         let program = "
-            fn concat(x1 Person, x2 Person) {
+            fn concat_persons(x1 Person, x2 Person) {
                 x := \"Names:\";
                 x = x1.name + x2.name;
                 return x;
@@ -414,7 +405,7 @@ mod test {
         let actual_tokens = Lexer::new(reader).read_tokens().unwrap();
         let expect_tokens = vec![
             Fn,
-            Iden("concat".to_string()),
+            Iden("concat_persons".to_string()),
             LParen,
             Iden("x1".to_string()),
             Iden("Person".to_string()),
