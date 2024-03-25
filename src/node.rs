@@ -5,6 +5,8 @@
 pub enum Node {
     DefFunc(DefFuncNode),
     DefStruct(DefStructNode),
+    DefTypeAlias(DefTypeAliasNode),
+    Import(ImportNode),
     Constant(Const),
     Variable(String),
     Binop(BinopNode),
@@ -22,28 +24,35 @@ pub enum Node {
     Func(FuncNode),
     Struct(StructNode),
     Array(Vec<Node>),
+    Tuple(Vec<Node>),
     Range(i32, i32),
     Lambda(LambdaNode)
 }
 pub enum TypeNode {
-    IntType,
-    FloatType,
-    BoolType,
-    CharType,
-    StringType,
-    ArrayType(Box<TypeNode>),
-    StructType(String),
+    Array(Box<TypeNode>),
+    Fn(Vec<TypeNode>, Option<Box<TypeNode>>),
+    Iden(String),
 }
 
 pub struct DefFuncNode {
     pub iden: String,
     pub args: Vec<(String, TypeNode)>,
+    pub ret: Option<TypeNode>,
     pub body: Vec<Node>
 }
 
 pub struct DefStructNode {
     pub iden: String,
     pub fields: Vec<(String, TypeNode)>
+}
+
+pub struct DefTypeAliasNode {
+    pub iden: String,
+    pub type_node: TypeNode
+}
+
+pub struct ImportNode {
+    pub iden: String
 }
 
 pub struct IfNode {
@@ -74,7 +83,7 @@ pub struct FuncNode {
 
 pub struct StructNode {
     pub iden: String,
-    pub fields: Vec<(String, Node)>
+    pub fields: Vec<(String, TypeNode)>
 }
 
 pub struct LambdaNode {
@@ -104,9 +113,9 @@ pub enum Const {
 
 #[derive(Debug, PartialEq)]
 pub enum Bop {
-    Add,
+    Plus,
     Exp,
-    Subtract,
+    Minus,
     Multiply,
     Divide,
     Eq,

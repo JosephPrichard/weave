@@ -1,6 +1,6 @@
 
 // function type definition
-type MapFunc = fn(int, int)
+type MapFunc = fn(int): int
 
 fn map(a1 []int, f MapFunc) {
     a2 := [a1.len]int.[]

@@ -77,7 +77,7 @@ pub fn eval_binary_expr(node: &BinopNode) -> ExprResult {
     let lhs = eval_node(node.lhs.as_ref())?;
     let rhs = eval_node(node.rhs.as_ref())?;
     match node.op {
-        Bop::Add => match (lhs, rhs) {
+        Bop::Plus => match (lhs, rhs) {
             (Const::Int(lhs), Const::Int(rhs)) => Ok(Const::Int(lhs + rhs)),
             (Const::Float(lhs), Const::Float(rhs)) => Ok(Const::Float(lhs + rhs)),
             (Const::String(lhs), Const::String(rhs)) => {
@@ -99,7 +99,7 @@ pub fn eval_binary_expr(node: &BinopNode) -> ExprResult {
             }
             _ => Err(RunErr::Type("Subtract operator must be applied to 2 ints, 2 floats, or between a string and an int"))
         },
-        Bop::Subtract => match (lhs, rhs) {
+        Bop::Minus => match (lhs, rhs) {
             (Const::Int(lhs), Const::Int(rhs)) => Ok(Const::Int(lhs - rhs)),
             (Const::Float(lhs), Const::Float(rhs)) => Ok(Const::Float(lhs - rhs)),
             _ => Err(RunErr::Type("Subtract operator must be applied to 2 ints or 2 floats"))

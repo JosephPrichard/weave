@@ -1,12 +1,14 @@
+use std::collections::VecDeque;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 use std::io::{BufRead, BufReader, Read};
-use crate::node::{Bop, Uop};
 
 #[derive(Debug, PartialEq)]
 pub enum Token {
-    Int(i32),
-    Float(f64),
-    Char(char),
-    String(String),
+    IntLit(i32),
+    FloatLit(f64),
+    CharLit(char),
+    StrLit(String),
     LParen,
     RParen,
     LBracket,
@@ -17,9 +19,8 @@ pub enum Token {
     Comma,
     Declare,
     Assign,
-    Binop(Bop),
-    Unop(Uop),
-    AssignOp(Bop),
+    AssignOp(Aop),
+    Operator(Op),
     Iden(String),
     True,
     False,
@@ -32,34 +33,134 @@ pub enum Token {
     While,
     For,
     In,
-    Sep
+    Import,
+    SemiColon,
+    Colon
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Op {
+    Plus,
+    Exp,
+    Minus,
+    Multiply,
+    Divide,
+    Eq,
+    Neq,
+    Leq,
+    Geq,
+    Lt,
+    Gt,
+    And,
+    Or,
+    Not,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Aop {
+    Plus,
+    Exp,
+    Minus,
+    Multiply,
+    Divide,
+}
+
+impl Token {
+    pub fn to_text(&self) -> &'static str {
+        match self {
+            Token::IntLit(_) => "<int>",
+            Token::FloatLit(_) => "<float>",
+            Token::CharLit(_) => "<char>",
+            Token::StrLit(_) => "<string>",
+            Token::LParen => "(",
+            Token::RParen => ")",
+            Token::LBracket => "[",
+            Token::RBracket => "]",
+            Token::LBrace => "{",
+            Token::RBrace => "}",
+            Token::Dot => ".",
+            Token::Comma => ",",
+            Token::Declare => ":=",
+            Token::Assign => "=",
+            Token::AssignOp(_) => "<assignop>",
+            Token::Operator(_) => "<operator>",
+            Token::Iden(_) => "<iden>",
+            Token::True => "true",
+            Token::False => "false",
+            Token::Fn => "fn",
+            Token::Struct => "struct",
+            Token::Type => "type",
+            Token::Return => "return",
+            Token::Break => "break",
+            Token::Continue => "continue",
+            Token::While => "while",
+            Token::For => "for",
+            Token::In => "in",
+            Token::Import => "import",
+            Token::SemiColon => ";",
+            Token::Colon => ":"
+        }
+    }
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_text())?;
+        Ok(())
+    }
 }
 
 pub struct Lexer<T: BufRead> {
     reader: BufReader<T>
 }
 
+fn from_esc_seq(c: char, term: char) -> Result<char, String> {
+    if c == '\\' {
+        Ok('\\')
+    } else if c == 'n' {
+        Ok('\n')
+    } else if c == 't' {
+        Ok('\t')
+    } else if c == 'r' {
+        Ok('\r')
+    } else if c == '0'{
+        Ok('\0')
+    } else if c == term {
+        Ok(term)
+    } else {
+        Err(format!("Invalid esc seq: '\\{}'", c))
+    }
+}
+
 impl<T: BufRead> Lexer<T> {
     pub fn new(reader: BufReader<T>) -> Lexer<T> {
-        Lexer { reader }
+        Lexer{ reader }
     }
 
-    fn read(&mut self) -> Option<char> {
+    fn read(&mut self) -> Result<Option<char>, String> {
         let mut buffer = [0; 1];
-        let count = self.reader.read(&mut buffer).unwrap();
-        if count > 0 {
-            Some(buffer[0] as char)
-        } else {
-            None
+        match self.reader.read(&mut buffer) {
+            Ok(count) => Ok(
+                if count > 0 {
+                    Some(buffer[0] as char)
+                } else {
+                    None
+                }
+            ),
+            Err(err) => Err(err.to_string())
         }
     }
 
-    fn peek(&mut self) -> Option<char> {
-        let buffer = self.reader.fill_buf().unwrap();
-        if !buffer.is_empty() {
-            Some(buffer[0] as char)
-        } else {
-            None
+    fn peek(&mut self) -> Result<Option<char>, String> {
+        match self.reader.fill_buf() {
+            Ok(buffer) => Ok(
+                if !buffer.is_empty() {
+                    Some(buffer[0] as char)
+                } else {
+                    None
+                }
+            ),
+            Err(err) => Err(err.to_string())
         }
     }
 
@@ -67,49 +168,57 @@ impl<T: BufRead> Lexer<T> {
         self.reader.consume(1)
     }
 
-    fn skip_spaces(&mut self) {
-        while let Some(c) = self.peek() {
-            if c == ' ' || c == '\t' {
+    fn skip_spaces(&mut self) -> Result<(), String> {
+        while let Some(c) = self.peek()? {
+            if c.is_whitespace() {
                 self.consume()
             } else {
-                return
-            }
-        }
-    }
-
-    fn scan_char(&mut self) -> Token {
-        let mut str = String::new();
-        while let Some(c) = self.peek() {
-            if c == '\'' {
                 break
             }
-            str.push(c);
-            self.consume()
         }
-        if str.len() != 1 {
-            panic!("Invalid char: '{}' a char literal must be 1 character", str)
-        } else {
-            Token::Char(str.chars().nth(0).unwrap())
-        }
+        Ok(())
     }
 
-    fn scan_string(&mut self) -> Token {
+    fn scan_text(&mut self, term: char) -> Result<String, String> {
+        let mut isesc = false;
         let mut str = String::new();
-        while let Some(c) = self.peek() {
-            if c == '\"' {
-                break
+        while let Some(c) = self.read()? {
+            if isesc {
+                isesc = false;
+                let c = from_esc_seq(c, term)?;
+                str.push(c)
+            } else {
+                if c == '\\' {
+                    isesc = true
+                } else if c == term {
+                    break
+                } else {
+                    str.push(c)
+                }
             }
-            str.push(c);
-            self.consume()
-        }
-        Token::String(str)
+        };
+        Ok(str)
     }
 
-    fn scan_number(&mut self, c: char) -> Token {
+    fn scan_char(&mut self) -> Result<Token, String> {
+        let str = self.scan_text('\'')?;
+        let first_char = str.chars().nth(0);
+        match (first_char, str.len()) {
+            (Some(c), 1) => Ok(Token::CharLit(c)),
+            _ => Err(format!("Invalid char: '{}' a char literal must be 1 character", str))
+        }
+    }
+
+    fn scan_string(&mut self) -> Result<Token, String> {
+        let str = self.scan_text('\"')?;
+        Ok(Token::StrLit(str))
+    }
+
+    fn scan_number(&mut self, c: char) -> Result<Token, String> {
         let mut is_int = true;
         let mut tok = String::from(c);
-        while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+        while let Some(c) = self.peek()? {
+            if !c.is_alphanumeric() {
                break
             }
             if c == '.' {
@@ -119,22 +228,28 @@ impl<T: BufRead> Lexer<T> {
             self.consume()
         }
         if is_int {
-            Token::Int(tok.parse::<i32>().unwrap())
+            match tok.parse::<i32>() {
+                Ok(int) => Ok(Token::IntLit(int)),
+                Err(_) => Err(format!("Invalid int: cannot parse {}", tok))
+            }
         } else {
-            Token::Float(tok.parse::<f64>().unwrap())
+            match tok.parse::<f64>() {
+                Ok(float) => Ok(Token::FloatLit(float)),
+                Err(_) => Err(format!("Invalid float: cannot parse {}", tok))
+            }
         }
     }
 
-    fn scan_keyword(&mut self, c: char) -> Token {
+    fn scan_keyword(&mut self, c: char) -> Result<Token, String> {
         let mut tok = String::from(c);
-        while let Some(c) = self.peek() {
+        while let Some(c) = self.peek()? {
             if !c.is_alphanumeric() {
                 break;
             }
             tok.push(c);
             self.consume()
         }
-        match tok.as_str() {
+        let token = match tok.as_str() {
             "fn" => Token::Fn,
             "struct" => Token::Struct,
             "type" => Token::Type,
@@ -146,89 +261,95 @@ impl<T: BufRead> Lexer<T> {
             "in" => Token::In,
             "true" => Token::True,
             "false" => Token::False,
+            "import" => Token::Import,
             _ => Token::Iden(tok),
-        }
+        };
+        Ok(token)
     }
 
-    fn scan_operator(&mut self, c: char) -> Token  {
+    fn scan_special(&mut self, c: char) -> Result<Token, String>  {
         let mut tok = String::from(c);
-        while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+        while let Some(c) = self.peek()? {
+            if c.is_whitespace() || c.is_alphanumeric() {
                 break
             }
             tok.push(c);
             self.consume()
         }
-        match tok.as_str() {
-            "*" => Token::Binop(Bop::Multiply),
-            "**" => Token::Binop(Bop::Exp),
-            "*=" => Token::AssignOp(Bop::Multiply),
-            "**=" => Token::AssignOp(Bop::Exp),
-            "-" => Token::Binop(Bop::Subtract),
-            "-=" => Token::AssignOp(Bop::Subtract),
-            "+" => Token::Binop(Bop::Add),
-            "+=" => Token::AssignOp(Bop::Add),
-            "/" => Token::Binop(Bop::Divide),
-            "/=" => Token::AssignOp(Bop::Divide),
+        let token = match tok.as_str() {
+            "*" => Token::Operator(Op::Multiply),
+            "**" => Token::Operator(Op::Exp),
+            "*=" => Token::AssignOp(Aop::Multiply),
+            "**=" => Token::AssignOp(Aop::Exp),
+            "-" => Token::Operator(Op::Minus),
+            "-=" => Token::AssignOp(Aop::Minus),
+            "+" =>Token::Operator(Op::Plus),
+            "+=" => Token::AssignOp(Aop::Plus),
+            "/" => Token::Operator(Op::Divide),
+            "/=" => Token::AssignOp(Aop::Divide),
             ":=" => Token::Declare,
             "=" => Token::Assign,
-            "==" => Token::Binop(Bop::Eq),
-            "!=" => Token::Binop(Bop::Neq),
-            "<=" => Token::Binop(Bop::Leq),
-            "<" => Token::Binop(Bop::Lt),
-            ">=" => Token::Binop(Bop::Geq),
-            ">" => Token::Binop(Bop::Gt),
-            "&&" => Token::Binop(Bop::And),
-            "||" => Token::Binop(Bop::Or),
-            _ => panic!("Invalid token: '{}' while scanning operator", tok),
-        }
+            "==" => Token::Operator(Op::Eq),
+            "!=" => Token::Operator(Op::Neq),
+            "<=" => Token::Operator(Op::Leq),
+            "<" => Token::Operator(Op::Lt),
+            ">=" => Token::Operator(Op::Geq),
+            ">" => Token::Operator(Op::Gt),
+            "&&" => Token::Operator(Op::And),
+            "||" => Token::Operator(Op::Or),
+            "," => Token::Comma,
+            "." => Token::Dot,
+            ";" => Token::SemiColon,
+            ":" => Token::Colon,
+            "[" => Token::LBracket,
+            "]" => Token::RBracket,
+            "(" => Token::LParen,
+            ")" => Token::RParen,
+            "{" => Token::LBrace,
+            "}" => Token::RBrace,
+            _ => return Err(format!("Invalid token: '{}' while scanning", tok)),
+        };
+        Ok(token)
     }
 
-    pub fn read_token(&mut self) -> Option<Token> {
-        self.skip_spaces();
-        match self.read() {
-            Some(c) => Some(
-                match c {
-                    '\n' => Token::Sep,
-                    '[' => Token::LBracket,
-                    ']' => Token::RBracket,
-                    '(' => Token::LParen,
-                    ')' => Token::RParen,
-                    '{' => Token::LBrace,
-                    '}' => Token::RBrace,
-                    '\'' => self.scan_char(),
-                    '\"' => self.scan_string(),
-                    ' ' | '\t' => panic!("Invalid token: should not contain whitespace, this is a bug"),
-                    _ => {
-                        if c.is_digit(10) || c == '-' {
-                            self.scan_number(c)
-                        } else if c.is_alphanumeric() {
-                            self.scan_keyword(c)
-                        } else {
-                            self.scan_operator(c)
-                        }
+    pub fn read_token(&mut self) -> Result<Option<Token>, String> {
+        self.skip_spaces()?;
+
+        if let Some(c) = self.read()? {
+            let token = match c {
+                '\'' => self.scan_char()?,
+                '\"' => self.scan_string()?,
+                ' ' |
+                '\t' => return Err("Invalid token: should not contain whitespace".to_string()),
+                _ => {
+                    if c.is_digit(10) || c == '-' {
+                        self.scan_number(c)?
+                    } else if c.is_alphanumeric() {
+                        self.scan_keyword(c)?
+                    } else {
+                        self.scan_special(c)?
                     }
                 }
-            ),
-            None => None
+            };
+            Ok(Some(token))
+        } else {
+            Ok(None)
         }
     }
 
-    pub fn read_tokens(&mut self) -> Vec<Token> {
-        let mut tokens = vec![];
-        while let Some(tok) = self.read_token() {
-            println!("{:?}", tok);
-            tokens.push(tok)
+    pub fn read_tokens(&mut self) -> Result<VecDeque<Token>, String> {
+        let mut tokens = VecDeque::new();
+        while let Some(tok) = self.read_token()? {
+            tokens.push_back(tok)
         }
-        tokens
+        Ok(tokens)
     }
 }
 
 mod test {
     use std::io::{BufReader, Cursor};
-    use crate::lexer::Lexer;
-    use crate::lexer::Token::{Assign, Binop, Declare, Iden, Int, LBrace, RBrace, Sep, While};
-    use crate::node::Bop;
+    use crate::lexer::{Lexer, Op};
+    use crate::lexer::Token::{Assign, CharLit, Comma, Declare, Dot, Fn, Iden, IntLit, LBrace, LParen, Operator, RBrace, Return, RParen, SemiColon, StrLit, While};
 
     #[test]
     fn test_peek_consume() {
@@ -237,7 +358,7 @@ mod test {
 
         let reader = BufReader::new(Cursor::new(text.clone()));
         let mut lexer = Lexer::new(reader);
-        while let Some(c) = lexer.peek() {
+        while let Some(c) = lexer.peek().unwrap() {
             actual_text.push(c);
             lexer.consume();
         }
@@ -248,35 +369,101 @@ mod test {
     #[test]
     fn test_lex_loop() {
         let program = "
-            x := 0
+            x := 0;
             while i < n {
-                x = x + 2
+                x = x + 2;
             }
         ";
         println!("Lexing:\n{}", program);
 
         let reader = BufReader::new(Cursor::new(program));
-        let actual_tokens = Lexer::new(reader).read_tokens();
+        let actual_tokens = Lexer::new(reader).read_tokens().unwrap();
         let expect_tokens = vec![
-            Sep,
             Iden("x".to_string()),
             Declare,
-            Int(0),
-            Sep,
+            IntLit(0),
+            SemiColon,
             While,
             Iden("i".to_string()),
-            Binop(Bop::Lt),
+            Operator(Op::Lt),
             Iden("n".to_string()),
             LBrace,
-            Sep,
             Iden("x".to_string()),
             Assign,
             Iden("x".to_string()),
-            Binop(Bop::Add),
-            Int(2),
-            Sep,
+            Operator(Op::Plus),
+            IntLit(2),
+            SemiColon,
             RBrace,
-            Sep
+        ];
+        assert_eq!(actual_tokens, expect_tokens)
+    }
+
+    #[test]
+    fn test_lex_func() {
+        let program = "
+            fn concat(x1 Person, x2 Person) {
+                x := \"Names:\";
+                x = x1.name + x2.name;
+                return x;
+            }
+        ";
+        println!("Lexing:\n{}", program);
+
+        let reader = BufReader::new(Cursor::new(program));
+        let actual_tokens = Lexer::new(reader).read_tokens().unwrap();
+        let expect_tokens = vec![
+            Fn,
+            Iden("concat".to_string()),
+            LParen,
+            Iden("x1".to_string()),
+            Iden("Person".to_string()),
+            Comma,
+            Iden("x2".to_string()),
+            Iden("Person".to_string()),
+            RParen,
+            LBrace,
+            Iden("x".to_string()),
+            Declare,
+            StrLit("Names:".to_string()),
+            SemiColon,
+            Iden("x".to_string()),
+            Assign,
+            Iden("x1".to_string()),
+            Dot,
+            Iden("name".to_string()),
+            Operator(Op::Plus),
+            Iden("x2".to_string()),
+            Dot,
+            Iden("name".to_string()),
+            SemiColon,
+            Return,
+            Iden("x".to_string()),
+            SemiColon,
+            RBrace,
+        ];
+        assert_eq!(actual_tokens, expect_tokens)
+    }
+
+    #[test]
+    fn test_text_lit() {
+        let program = "
+            x := \" \\n \\t \\\\ \";
+            y := \'\\n\';
+        ";
+        println!("Lexing:\n{}", program);
+
+        let reader = BufReader::new(Cursor::new(program));
+        let actual_tokens = Lexer::new(reader).read_tokens().unwrap();
+        let expect_tokens = vec![
+            Iden("x".to_string()),
+            Declare,
+            StrLit(" \n \t \\ ".to_string()),
+            SemiColon,
+            Iden("y".to_string()),
+            Declare,
+            CharLit('\n'),
+            SemiColon
         ];
         assert_eq!(actual_tokens, expect_tokens)
     }
