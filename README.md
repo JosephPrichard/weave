@@ -1,3 +1,3 @@
-# Howdy
+# Equinox
 
-Toy programming language interpreter. Work in progress!
+A statically typed, interpreted programming language. Work in progress!

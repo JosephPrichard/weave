@@ -90,19 +90,19 @@ pub struct ForNode {
 #[derive(Debug, PartialEq)]
 pub struct FuncNode {
     pub iden: String,
-    pub args: Vec<Node>
+    pub args: Vec<Node>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct StructNode {
     pub iden: String,
-    pub fields: Vec<(String, TypeNode)>
+    pub fields: Vec<(String, TypeNode)>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LambdaNode {
     pub args: Vec<(String, Option<TypeNode>)>,
-    pub body: Box<Node>
+    pub body: Box<Node>,
 }
 
 #[derive(Debug, PartialEq)]

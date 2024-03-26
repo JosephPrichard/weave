@@ -1,148 +1,154 @@
 use std::collections::VecDeque;
-use crate::lexer::{Token};
+use crate::lexer::{TokenContext, Token};
 use crate::node::{DefFuncNode, DefStructNode, DefTypeAliasNode, ImportNode, Node, TypeNode};
 
 pub struct Parser {
-    tokens: VecDeque<Token>
-}
-
-pub fn expect_error(expected: &str, actual: &str) -> String {
-    format!("{} expected, got {}", expected, actual)
+    tokens: VecDeque<TokenContext>
 }
 
 impl Parser {
-    fn new(tokens: VecDeque<Token>) -> Parser {
+    fn new(tokens: VecDeque<TokenContext>) -> Parser {
         Parser { tokens }
     }
 
-    fn peek_token(&self) -> Option<&Token> {
+    fn peek_token(&self) -> Option<&TokenContext> {
         self.tokens.front()
     }
 
-    fn advance_token(&mut self) -> Option<Token> {
+    fn consume_token(&mut self) {
+        self.tokens.pop_front();
+    }
+
+    fn next_token(&mut self) -> Option<TokenContext> {
         self.tokens.pop_front()
     }
 
-    fn expect_token(&mut self) -> Result<Token, String> {
-        let tok = self.advance_token();
-        match tok {
+    fn advance_token(&mut self) -> Result<TokenContext, String> {
+        let opt_tok = self.next_token();
+        match opt_tok {
             Some(tok) => Ok(tok),
-            None => Err("expected a token".to_string())
+            None => Err("expected token, but reached end of the stream".to_string())
+        }
+    }
+
+    fn expect_token(&mut self, expected: Token) -> Result<(), String> {
+        let opt_tok = self.advance_token()?;
+        match opt_tok {
+            tok if tok.kind == expected => Ok(()),
+            tok => Err(format!("{} token expected, got {}", expected.to_text(), &tok))
         }
     }
 
     pub fn parse_program(&mut self) -> Result<Vec<Node>, String> {
         let mut nodes = vec![];
-        loop {
-            let tok = self.advance_token();
-            let node = match tok {
-                Some(Token::Import) => self.parse_import()?,
-                Some(Token::Fn) => self.parse_def_func()?,
-                Some(Token::Type) => self.parse_def_type()?,
-                Some(Token::Struct) => self.parse_def_struct()?,
-                Some(tok) => return Err(expect_error("import, fn, or type", tok.to_text())),
-                None => return Ok(nodes)
+        while let Some(tok) = self.next_token() {
+            let node = match tok.kind {
+                Token::Import => self.parse_import()?,
+                Token::Fn => self.parse_def_func()?,
+                Token::Type => self.parse_def_type()?,
+                Token::Struct => self.parse_def_struct()?,
+                _ => return Err(format!("import, fn, or type expected, got {}", &tok)),
             };
             nodes.push(node)
         }
+        Ok(nodes)
     }
 
     fn parse_import(&mut self) -> Result<Node, String> {
-        let tok = self.expect_token()?;
-        match tok {
+        let tok = self.advance_token()?;
+        match tok.kind {
             Token::Iden(iden) => {
                 let node = ImportNode { iden };
                 Ok(Node::Import(node))
             }
-            tok =>
-                Err(expect_error("<iden>", tok.to_text())),
+            _ => return Err(format!("expected <iden> in import, got {}", &tok)),
         }
     }
 
     fn parse_def_func(&mut self) -> Result<Node, String> {
-        let tok = self.expect_token()?;
-        let iden = match tok {
+        let tok = self.advance_token()?;
+        let iden = match tok.kind {
             Token::Iden(iden) => iden,
-            tok =>
-                return Err(expect_error("<iden>", tok.to_text()))
+            _ => return Err(format!("expected <iden> in function definition, got {}", &tok)),
         };
 
-        let tok = self.expect_token()?;
-        let args = match tok {
-            Token::LParen => self.parse_type_pairs(Token::RParen)?,
-            tok =>
-                return Err(expect_error("(", tok.to_text()))
-        };
+        self.expect_token(Token::LParen)?;
 
-        let tok = self.peek_token();
-        let ret = match tok {
-            Some(Token::Colon) => {
-                self.advance_token();
-                let type_node = self.parse_type()?;
-                Some(type_node)
-            }
-            _ => None
-        };
-
+        let args =  self.parse_type_pairs(Token::RParen)?;
+        let ret = self.parse_ret_type()?;
         let body = vec![];
         let node = DefFuncNode { iden, args, ret, body };
+
         Ok(Node::DefFunc(node))
     }
 
     fn parse_type_pairs(&mut self, term: Token) -> Result<Vec<(String, TypeNode)>, String> {
         let mut args = vec![];
         loop {
-            let tok = self.expect_token()?;
-            let iden_arg = match tok {
+            let tok = self.advance_token()?;
+            let iden_arg = match tok.kind {
                 Token::Iden(iden_arg) => iden_arg,
-                tok if tok == term => break,
-                tok => {
-                    let m = format!("{} or <iden>", term.to_text());
-                    return Err(expect_error(&m, tok.to_text()))
+                typ if typ == term => break,
+                _ => {
+                    return Err(format!("expected {} or <iden> in function definition, got {}", term.to_text(), &tok))
                 }
             };
 
             let type_node = self.parse_type()?;
             args.push((iden_arg, type_node));
 
-            let tok = self.expect_token()?;
-            match tok {
-                Token::Comma => (),
-                tok if tok == term => break,
-                tok => {
-                    let m = format!("{} or ,", term.to_text());
-                    return Err(expect_error(&m, tok.to_text()))
+            let tok = self.advance_token()?;
+            match tok.kind {
+                Token::Comma => continue,
+                typ if typ == term => break,
+                _ => {
+                    return Err(format!("expected {} or ',' in function definition, got {}", term.to_text(), &tok))
                 }
             }
         }
         Ok(args)
     }
 
+    fn parse_ret_type(&mut self) -> Result<Option<TypeNode>, String> {
+        let opt_tok = self.peek_token();
+        match opt_tok {
+            Some(tok) => match tok.kind {
+                Token::Arrow => {
+                    self.consume_token();
+                    let type_node = self.parse_type()?;
+                    Ok(Some(type_node))
+                }
+                _ => Ok(None)
+            }
+            _ => Ok(None)
+        }
+    }
+
     fn parse_type(&mut self) -> Result<TypeNode, String> {
-        let tok = self.expect_token()?;
-        match tok {
+        let tok = self.advance_token()?;
+        match tok.kind {
             Token::Iden(iden) => Ok(TypeNode::Iden(iden)),
             Token::Fn => {
-                let tok = self.expect_token()?;
-                match tok {
+                let tok = self.advance_token()?;
+                match tok.kind {
                     Token::LParen => {
                         let type_node = self.parse_fn_type()?;
                         Ok(type_node)
                     }
-                    token => Err(expect_error("<fn>", token.to_text()))
+                    _ => return Err(format!("expected ')' after <fn>, got {}", &tok))
                 }
             }
             Token::LBracket => {
-                let tok = self.expect_token()?;
-                match tok {
+                let tok = self.advance_token()?;
+                match tok.kind {
                     Token::RBracket => {
                         let type_node = Box::new(self.parse_type()?);
                         Ok(TypeNode::Array(type_node))
                     }
-                    token => Err(expect_error("]", token.to_text()))
+                    _ => return Err(format!("expected '[]' before an array type, got {}", &tok))
                 }
             }
-            token => Err(expect_error("<iden> or <array>", token.to_text()))
+            _ => return Err(format!("expected <iden>, <fn>, or <array> as type definition, got {}", &tok))
         }
     }
 
@@ -152,34 +158,23 @@ impl Parser {
             let type_node = self.parse_type()?;
             args.push(type_node);
 
-            let tok = self.expect_token()?;
-            match tok {
-                Token::Comma => (),
+            let tok = self.advance_token()?;
+            match tok.kind {
+                Token::Comma => continue,
                 Token::RParen => break,
-                tok =>
-                    return Err(expect_error(", or )", tok.to_text()))
+                _ => return Err(format!("expected ',' or ')' after argument type in fn type, got {}", &tok))
             }
         }
 
-        let tok = self.peek_token();
-        let ret = match tok {
-            Some(Token::Colon) => {
-                self.advance_token();
-                let type_node = self.parse_type()?;
-                Some(Box::new(type_node))
-            }
-            _ => None
-        };
-
+        let ret = self.parse_ret_type()?.map(|t| Box::new(t));
         Ok(TypeNode::Fn(args, ret))
     }
 
     fn parse_def_type(&mut self) -> Result<Node, String> {
-        let tok = self.expect_token()?;
-        let iden = match tok {
+        let tok = self.advance_token()?;
+        let iden = match tok.kind {
             Token::Iden(iden) => iden,
-            tok =>
-                return Err(expect_error("<iden>", tok.to_text()))
+            _ => return Err(format!("expected ',' or ')' after argument type in fn type, got {}", &tok))
         };
 
         let type_node = self.parse_type()?;
@@ -188,23 +183,18 @@ impl Parser {
     }
 
     fn parse_def_struct(&mut self) -> Result<Node, String> {
-        let tok = self.expect_token()?;
-        let iden = match tok {
+        let tok = self.advance_token()?;
+        let iden = match tok.kind {
             Token::Iden(iden) => iden,
-            tok =>
-                return Err(expect_error("<iden>", tok.to_text()))
+            _ => return Err(format!("expected <iden> after a struct definition, got {}", &tok))
         };
 
-        let tok = self.expect_token()?;
-        match tok {
-            Token::LBrace => {
-                let fields = self.parse_type_pairs(Token::RBrace)?;
-                let node = DefStructNode{ iden, fields };
-                Ok(Node::DefStruct(node))
-            }
-            tok =>
-                Err(expect_error("{", tok.to_text()))
-        }
+        self.expect_token(Token::LBrace)?;
+
+        let fields = self.parse_type_pairs(Token::RBrace)?;
+        let node = DefStructNode{ iden, fields };
+
+        Ok(Node::DefStruct(node))
     }
 }
 
@@ -224,10 +214,12 @@ mod test {
                 x int,
                 y int,
             }
-            fn add_points(p1 Point, p2 Point): Point
+            fn concat_points(p1 Point, p2 Point) -> []Point
         ";
         let reader = BufReader::new(Cursor::new(program));
         let tokens = Lexer::new(reader).read_tokens().unwrap();
+        println!("tokens {:?}", tokens);
+
         let actual_nodes = Parser::new(tokens).parse_program().unwrap();
         let expect_nodes = vec![
             DefStruct(DefStructNode{
@@ -238,12 +230,14 @@ mod test {
                 ],
             }),
             DefFunc(DefFuncNode {
-                iden: "add_points".to_string(),
+                iden: "concat_points".to_string(),
                 args: vec![
                     ("p1".to_string(), TypeNode::Iden("Point".to_string())),
                     ("p2".to_string(), TypeNode::Iden("Point".to_string()))
                 ],
-                ret: Some(TypeNode::Iden("Point".to_string())),
+                ret: Some(TypeNode::Array(
+                    Box::new(TypeNode::Iden("Point".to_string()))
+                )),
                 body: vec![],
             })
         ];
